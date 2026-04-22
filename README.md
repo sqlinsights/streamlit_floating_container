@@ -19,10 +19,10 @@ A Streamlit custom component that creates a floating, draggable panel overlay fo
 pip install streamlit-floating-container
 ```
 
-Or install from the local wheel:
+Using UV:
 
 ```bash
-pip install streamlit_floating_container-0.1.1-py3-none-any.whl
+uv add streamlit-floating-container
 ```
 
 ## Usage
