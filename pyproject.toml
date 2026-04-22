@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "streamlit-floating-container"
+version = "0.2.5"
+description = "A Streamlit custom component that creates a floating, draggable chat panel with glassmorphic design and automatic chat input management."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["streamlit>=1.53.0"]
+authors = [{ name = "Carlos D Serrano", email = "sqlinsights@gmail.com" }]
+
+[tool.hatch.build.targets.wheel]
+packages = ["streamlit_floating_container"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"streamlit_floating_container/floating_container.html" = "streamlit_floating_container/floating_container.html"
+"streamlit_floating_container/floating_container.js" = "streamlit_floating_container/floating_container.js"
+"streamlit_floating_container/styles.css" = "streamlit_floating_container/styles.css"
