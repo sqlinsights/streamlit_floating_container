@@ -13,7 +13,7 @@
     min-height: 50vh;
     min-width: 400px;
     flex-direction: column;
-    z-index: 800;
+    z-index: 999;
     transition: top 0.3s ease-out, height 0.3s ease-out, max-height 0.3s ease-out;
 }
 
@@ -87,7 +87,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 999;
+    z-index: 900;
     width: 30px;
     height: 30px;
     border-radius: 15px;
@@ -123,7 +123,7 @@
     bottom: 1rem;
 }
 
-.st-key-panel-fixed {
+[class*="st-key-panel-fixed-"] {
     overflow: hidden;
 }
 
@@ -162,6 +162,7 @@
     background: var(--st-primary-color);
     box-shadow: rgba(99, 99, 99, 0.2) 0px 2px 8px 0px;
     touch-action: none;
+    z-index: 800;
 }
 
 .open-panel-btn-text {
@@ -184,7 +185,7 @@
 }
 
 
-#drag-handle {
+.drag-handle {
     width: 40px;
     height: 40px;
     background: var(--st-secondary-background-color);
@@ -201,62 +202,62 @@
     transition: all 0.1s ease;
 }
 
-#drag-handle.hidden {
+.drag-handle.hidden {
     display: none !important;
 }
 
-#drag-handle,
+.drag-handle,
 .open-panel-btn {
     top: 2.5em;
 
-}
-
-.movable-wrapper {
-    position: fixed;
-    max-height: 90vh;
-    right: 20px;
-    display: flex;
-    align-items: center;
-    flex-direction: row-reverse;
-    /* Handle appears to the left of the button */
-    gap: 25px;
-    z-index: 9999;
-    cursor: none;
-}
-
-#movable-wrapper:hover #drag-handle,
-#movable-wrapper.active #drag-handle {
-    opacity: 1;
-    transform: translateX(0);
-}
 
 
+    .movable-wrapper {
+        position: fixed;
+        max-height: 90vh;
+        right: 20px;
+        display: flex;
+        align-items: center;
+        flex-direction: row-reverse;
+        /* Handle appears to the left of the button */
+        gap: 25px;
+        z-index: 800;
+        cursor: none;
+    }
+
+    .movable-wrapper:hover .drag-handle,
+    .movable-wrapper.active .drag-handle {
+        opacity: 1;
+        transform: translateX(0);
+    }
 
 
-.open-panel-btn:hover {
-    transform: scale(1.05);
-    border: 2px solid var(--st-primary-color);
-}
 
 
-.nav-open {
-    opacity: 1;
-    position: fixed;
-    right: -500px;
-    transition: all 0.6s ease-in-out;
-}
+    .open-panel-btn:hover {
+        transform: scale(1.05);
+        border: 2px solid var(--st-primary-color);
+    }
 
-.panel-open {
-    right: 2rem;
-    transition: right 0.6s ease-in-out, top 0.3s ease-out;
-}
 
-.floating-panel div[data-testid="stElementContainer"]:has(> div[data-testid="stChatInput"]:first-child) {
-    bottom: 1rem;
-    padding-right: 2rem;
-    position: absolute;
-}
+    .nav-open {
+        opacity: 1;
+        position: fixed;
+        right: -500px;
+        transition: all 0.6s ease-in-out;
+    }
 
-.has-chat {
-    margin-bottom: 75px;
-}
+    .panel-open {
+        right: 2rem;
+        transition: right 0.6s ease-in-out, top 0.3s ease-out;
+    }
+
+    .floating-panel div[data-testid="stElementContainer"]:has(> div[data-testid="stChatInput"]:first-child) {
+        bottom: 1rem;
+        padding-right: 2rem;
+        position: absolute;
+    }
+
+    .has-chat {
+        margin-bottom: 75px;
+    }

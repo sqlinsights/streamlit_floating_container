@@ -17,7 +17,7 @@ export default function (component) {
     // ---- Resolve or create the per-instance state ----
     let instance = INSTANCES.get(parentElement);
     if (!instance) {
-        instance = createInstance(parentElement);
+        instance = createInstance(parentElement, data || {});
         INSTANCES.set(parentElement, instance);
     }
 
@@ -31,18 +31,32 @@ export default function (component) {
     };
 }
 
-function createInstance(parentElement) {
+function createInstance(parentElement, data) {
+    // Instance IDs / keys come from Python so every mounted instance has
+    // a unique DOM footprint.  Fall back to "default" if the renderer
+    // receives an older payload without these fields.
+    const instanceId = data.instanceId || 'default';
+    const scrollableKey = data.scrollableKey || `panel-scrollable-${instanceId}`;
+    const fixedKey = data.fixedKey || `panel-fixed-${instanceId}`;
+
+    const id = (base) => `${base}-${instanceId}`;
+
     // Scoped DOM references (component's own nodes live under parentElement).
-    const openButton = parentElement.querySelector('#open-panel');
-    const panelWindow = parentElement.querySelector('#floating-panel');
-    const wrapper = parentElement.querySelector('#movable-wrapper');
-    const handle = parentElement.querySelector('#drag-handle');
-    const labelH2 = panelWindow.querySelector('#label');
-    const closeBtn = parentElement.querySelector('#close-panel');
-    const expandBtn = parentElement.querySelector('#expand-panel');
-    const messagesScrollableWrapper = parentElement.querySelector('#panel-scrollable');
-    const bottomDiv = parentElement.querySelector('#input-div');
-    const horizontalExpand = document.getElementById('horizontal-expand');
+    const openButton = parentElement.querySelector(`#${id('open-panel')}`);
+    const panelWindow = parentElement.querySelector(`#${id('floating-panel')}`);
+    const wrapper = parentElement.querySelector(`#${id('movable-wrapper')}`);
+    const handle = parentElement.querySelector(`#${id('drag-handle')}`);
+    const labelH2 = panelWindow.querySelector(`#${id('label')}`);
+    const closeBtn = parentElement.querySelector(`#${id('close-panel')}`);
+    const expandBtn = parentElement.querySelector(`#${id('expand-panel')}`);
+    const messagesScrollableWrapper = parentElement.querySelector(`#${id('panel-scrollable')}`);
+    const bottomDiv = parentElement.querySelector(`#${id('input-div')}`);
+    const horizontalExpand = parentElement.querySelector(`#${id('horizontal-expand')}`);
+
+    // Selectors for Streamlit-rendered containers (their class names are
+    // derived from the container key, which is also parameterized).
+    const scrollableHostSelector = `div.st-key-${scrollableKey}`;
+    const fixedHostSelector = `div.st-key-${fixedKey}`;
 
     // Static icon wiring (close/expand). The panel icon is data-driven and set
     // in applyData().
@@ -122,6 +136,27 @@ function createInstance(parentElement) {
 
     // ---- Event handlers ----
 
+    // Close this panel if another panel is opened. Coordinated via a
+    // window-level CustomEvent so every mounted instance participates
+    // without needing shared module state.
+    const FC_OPEN_EVENT = 'floating-container:opened';
+
+    const closeIfOpen = () => {
+        if (!panelWindow.classList.contains('panel-open')) return;
+        openButton.classList.remove('nav-open');
+        openButton.disabled = false;
+        panelWindow.classList.remove('panel-open');
+        closeBtn.classList.remove('panel-open');
+        handle.classList.remove('hidden');
+    };
+
+    const onOtherOpened = (evt) => {
+        if (!evt || !evt.detail) return;
+        if (evt.detail.instanceId === instanceId) return;
+        closeIfOpen();
+    };
+    window.addEventListener(FC_OPEN_EVENT, onOtherOpened);
+
     const onOpenClick = () => {
         openButton.classList.add('nav-open');
         openButton.disabled = true;
@@ -129,14 +164,14 @@ function createInstance(parentElement) {
         closeBtn.classList.add('panel-open');
         handle.classList.add('hidden');
         positionPanelWindow();
+        // Notify peers to close themselves.
+        window.dispatchEvent(new CustomEvent(FC_OPEN_EVENT, {
+            detail: { instanceId },
+        }));
     };
 
     const onCloseClick = () => {
-        openButton.classList.remove('nav-open');
-        openButton.disabled = false;
-        panelWindow.classList.remove('panel-open');
-        closeBtn.classList.remove('panel-open');
-        handle.classList.remove('hidden');
+        closeIfOpen();
     };
 
     const onExpandClick = () => {
@@ -214,8 +249,8 @@ function createInstance(parentElement) {
 
 
     const captureExternalContainers = () => {
-        const scrollable = document.querySelector('div.st-key-panel-scrollable');
-        const fixed = document.querySelector('div.st-key-panel-fixed');
+        const scrollable = document.querySelector(scrollableHostSelector);
+        const fixed = document.querySelector(fixedHostSelector);
         if (scrollable && scrollable.parentElement !== messagesScrollableWrapper) {
             messagesScrollableWrapper.append(scrollable);
 
@@ -261,6 +296,7 @@ function createInstance(parentElement) {
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
         horizontalExpand.removeEventListener('click', onStretchClick);
+        window.removeEventListener(FC_OPEN_EVENT, onOtherOpened);
 
         clearTimeout(debounceTimer);
         countObserver.disconnect();

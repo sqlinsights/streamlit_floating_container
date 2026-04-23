@@ -1,26 +1,21 @@
-"""Refactored Python API for streamlit_floating_container.
+"""Python API for streamlit_floating_container.
 
-Improvements over the original __init__.py:
-
-* Registers the CCv2 component **once** at module import time (best practice
-  from the CCv2 guide) instead of re-declaring it inside ``show()`` on every
-  render.
-* Wires up the refactored JS file (``floating_container.refactored.js``) and
-  drops the ``advice_for_reload`` reload handshake entirely — the JS now
-  hot-updates in place from ``data``.
-* Removes the stray ``st.write(HTML)`` debug call that was leaking the raw
-  HTML string into the app on import.
-* Light cleanups: typed return from the context manager, clearer validation
-  errors, no behavior changes to the public surface.
+Each ``FloatingContainer`` instance receives its own DOM-safe
+``instance_id`` derived from ``key``.  That ID is interpolated into
+every element ID in the HTML template and into every Streamlit
+container key, so multiple instances (or hot-reload re-mounts) never
+collide on duplicate IDs.
 """
 
 from __future__ import annotations
 
+import re
 import streamlit as st
 from contextlib import contextmanager
 from pathlib import Path
 from enum import Enum
 from typing import Literal, get_args
+import time
 
 component_dir = Path(__file__).parent
 
@@ -37,22 +32,51 @@ StartingPositionType = Literal["top", "middle", "bottom"]
 
 @st.cache_data(show_spinner=False)
 def _load_component_code() -> tuple[str, str, str]:
+    """Load the raw HTML/CSS/JS sources (HTML still contains placeholders)."""
     html = (component_dir / "floating_container.html").read_text()
     css = (component_dir / "styles.css").read_text()
-    # Use the refactored JS renderer.
     js = (component_dir / "floating_container.js").read_text()
     return html, css, js
 
 
-_HTML, _CSS, _JS = _load_component_code()
+_HTML_TEMPLATE, _CSS, _JS = _load_component_code()
 
-_FLOATING_COMPONENT = st.components.v2.component(
-    name="floating_chat",
-    html=_HTML,
-    css=_CSS,
-    js=_JS,
-    isolate_styles=False,
-)
+# One registered CCv2 component per unique instance_id. Each instance gets
+# its own HTML (with IDs rewritten to include the instance_id) so multiple
+# instances never share DOM IDs.
+_COMPONENT_REGISTRY: dict[str, object] = {}
+
+
+_INSTANCE_ID_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
+
+
+def _slugify_instance_id(raw: str) -> str:
+    """Normalize a user-supplied key into a DOM-safe instance ID.
+
+    Replaces runs of non-``[a-zA-Z0-9_-]`` characters with ``-``, trims
+    leading/trailing separators, and falls back to ``default`` when the
+    result would be empty.
+    """
+    slug = _INSTANCE_ID_SAFE.sub("-", raw or "").strip("-_")
+    return slug or "default"
+
+
+def _get_component(instance_id: str):
+    """Return (and memoize) a CCv2 component whose HTML is parameterized for ``instance_id``."""
+    component = _COMPONENT_REGISTRY.get(instance_id)
+    if component is not None:
+        return component
+
+    html = _HTML_TEMPLATE.replace("__INSTANCE__", instance_id)
+    component = st.components.v2.component(
+        name=f"floating_chat__{instance_id}",
+        html=html,
+        css=_CSS,
+        js=_JS,
+        isolate_styles=False,
+    )
+    _COMPONENT_REGISTRY[instance_id] = component
+    return component
 
 
 class FloatingContainer:
@@ -69,9 +93,17 @@ class FloatingContainer:
     directly inside the panel, it is automatically pinned to the bottom
     to mimic Streamlit's native chat layout.
 
-    Only **one** ``FloatingContainer`` instance may be mounted per page;
-    attempting to mount a second instance raises ``RuntimeError`` at
-    ``panel()`` enter time.
+    Only one ``FloatingContainer`` instance per ``start_position``
+    (``"top"``, ``"middle"``, ``"bottom"``) may be mounted at the same
+    time. Attempting to mount a second instance with the same
+    ``start_position`` raises ``RuntimeError`` at ``panel()`` enter
+    time. When a user opens one panel, all other mounted panels close
+    automatically (mutual exclusion is coordinated in the frontend).
+
+    Every DOM ID and Streamlit container key emitted by this component
+    is suffixed with a DOM-safe ``instance_id`` derived from ``key``,
+    so multiple registrations (across pages or hot reloads) do not
+    collide on duplicate IDs.
 
     Parameters
     ----------
@@ -81,49 +113,35 @@ class FloatingContainer:
         character (e.g. ``"?"``, ``"★"``).
     label:
         Text displayed in the panel header when the panel is open.
-        Defaults to an empty string (no header label).
     width:
         Legacy parameter; currently has no effect and is kept for
-        backward compatibility. Use the Stretch Width button in the
-        panel UI to toggle width at runtime.
+        backward compatibility.
     start_position:
         Initial vertical position of the toggle button. One of
-        ``"top"`` (8%), ``"middle"`` (40%), or ``"bottom"`` (84%).
-        Defaults to ``"top"``.
+        ``"top"``, ``"middle"``, ``"bottom"``.
     key:
-        Unique identifier for this component instance. Used to scope
-        session state and enforce the single-instance invariant.
-        Defaults to an empty string.
+        Unique identifier for this component instance. Used to derive
+        a DOM-safe ``instance_id`` and to scope the single-instance
+        invariant.
     glassmorphic:
-        When ``True``, applies a frosted-glass blur effect to the
-        panel. When ``False``, uses a solid theme-aware background.
-        Defaults to ``True``.
+        When ``True``, applies a frosted-glass blur effect to the panel.
 
     Examples
     --------
-    Minimal usage::
-
-        fp = FloatingContainer(icon=":material/chat:", label="Help", key="help")
-        with fp.panel():
-            st.write("Help content here")
-
-    Chat interface with auto-pinned input::
+    ::
 
         fp = FloatingContainer(icon=":material/chat:", key="chat")
         with fp.panel():
-            for msg in st.session_state.messages:
-                with st.chat_message(msg["who"]):
-                    st.write(msg["message"])
-            st.chat_input("Type a message...", key="in")
+            st.write("Content in the floating panel")
 
     Raises
     ------
     ValueError
-        If ``start_position`` is not one of ``"top"``, ``"middle"``,
-        or ``"bottom"``.
+        If ``start_position`` is not one of ``"top"``, ``"middle"``, or
+        ``"bottom"``.
     RuntimeError
-        Raised from ``panel()`` if another ``FloatingContainer``
-        instance is already mounted in the current session.
+        Raised from ``panel()`` if another ``FloatingContainer`` with a
+        different key is already mounted in this session.
     """
 
     def __init__(
@@ -137,59 +155,34 @@ class FloatingContainer:
     ):
         self.label = label
         self.icon = self._validate_icon(icon=icon)
-        self.start_position = self._validate_start_position(
+        # Keep the literal name ("top"/"middle"/"bottom") for the
+        # single-per-position check, and resolve the CSS value for the
+        # renderer.
+        self.start_position_key = self._validate_start_position_key(
             start_position=start_position
         )
+        self.start_position = StartPosition[self.start_position_key].value
         self.key = key
         self.glassmorphic = glassmorphic
 
+        # DOM-safe instance ID used to parameterize all HTML IDs and
+        # Streamlit container keys.
+        self.instance_id = _slugify_instance_id(key)
+
     @staticmethod
-    def _validate_start_position(start_position: str) -> str:
-        """Validate ``start_position`` and map it to a CSS top value.
-
-        Parameters
-        ----------
-        start_position:
-            One of ``"top"``, ``"middle"``, ``"bottom"``.
-
-        Returns
-        -------
-        str
-            The corresponding CSS percentage value (e.g. ``"8%"``).
-
-        Raises
-        ------
-        ValueError
-            If ``start_position`` is not a recognized value.
-        """
+    def _validate_start_position_key(start_position: str) -> str:
+        """Validate ``start_position`` and return the literal key."""
         valid = list(get_args(StartingPositionType))
         if start_position not in valid:
             raise ValueError(
                 f"Invalid start_position value: {start_position!r} "
                 f"(expected one of {valid})"
             )
-        return StartPosition[start_position].value
+        return start_position
 
     @staticmethod
     def _validate_icon(icon: str) -> str | None:
-        """Normalize an icon value into the form expected by the frontend.
-
-        Accepts either a single character or Streamlit's Material icon
-        syntax (``":material/<name>:"``) and returns the bare name used
-        by the frontend renderer. On invalid input, surfaces an
-        ``st.error`` and returns ``None``.
-
-        Parameters
-        ----------
-        icon:
-            The raw icon value supplied by the caller.
-
-        Returns
-        -------
-        str or None
-            The normalized icon value, or ``None`` when the input is
-            invalid.
-        """
+        """Normalize an icon value into the form expected by the frontend."""
         if len(icon) == 1:
             return icon
         if icon.startswith(":material/") and icon.endswith(":"):
@@ -197,63 +190,60 @@ class FloatingContainer:
         st.error("Invalid FloatingContainer icon.")
         return None
 
+    # --- Key helpers ------------------------------------------------------
+    @property
+    def _mount_key(self) -> str:
+        return f"st_floating_container.{self.instance_id}"
+
+    @property
+    def _scrollable_key(self) -> str:
+        return f"panel-scrollable-{self.instance_id}"
+
+    @property
+    def _fixed_key(self) -> str:
+        return f"panel-fixed-{self.instance_id}"
+
+    # --- Public API -------------------------------------------------------
     @contextmanager
     def panel(self):
         """Mount the floating panel and enter its scrollable container.
 
-        Yields a Streamlit delta generator representing the scrollable
-        body of the floating panel. Anything rendered inside the
-        ``with`` block appears in the panel. A nested ``with`` is
-        **not** required — the yielded value is already the active
-        container.
-
-        Enforces the single-instance invariant: if another
-        ``FloatingContainer`` instance (with a different key) is
-        already mounted in this session, ``RuntimeError`` is raised
-        before the component mounts.
-
-        Yields
-        ------
-        streamlit.delta_generator.DeltaGenerator
-            The active scrollable container for the panel body.
-
-        Raises
-        ------
-        RuntimeError
-            If another ``FloatingContainer`` instance is already
-            mounted in this session.
-
-        Examples
-        --------
-        ::
-
-            fp = FloatingContainer(icon=":material/chat:", key="chat")
-            with fp.panel():
-                st.write("Content in the floating panel")
+        Enforces that no other ``FloatingContainer`` with the same
+        ``start_position`` is already mounted in this session.
         """
-        instance_key = f"st_floating_container.{self.key}"
+        # Track which positions are currently occupied. Map of
+        # start_position -> mount_key so the same instance can re-mount
+        # across reruns without tripping the check.
+        registry_key = "_st_floating_container_positions"
+        registry: dict[str, str] = st.session_state.setdefault(registry_key, {})
 
-        # Enforce the single-instance invariant before we mount.
-        active_instances = [
-            k
-            for k in st.session_state.keys()
-            if str(k).startswith("st_floating_container.")
-        ]
-        if active_instances and instance_key not in active_instances:
+        # Prune stale entries: if a mount_key is no longer in session_state
+        # (the instance was unmounted), drop it from the registry.
+        for pos, mk in list(registry.items()):
+            if mk not in st.session_state:
+                registry.pop(pos, None)
+
+        occupying = registry.get(self.start_position_key)
+        if occupying is not None and occupying != self._mount_key:
             raise RuntimeError(
-                "You can only have one instance of FloatingContainer at a time"
+                "Only one FloatingContainer per start_position is allowed. "
+                f"Position {self.start_position_key!r} is already in use."
             )
+        registry[self.start_position_key] = self._mount_key
 
-        _FLOATING_COMPONENT(
+        component = _get_component(self.instance_id)
+        component(
             data=dict(
                 icon=self.icon,
                 startPosition=self.start_position,
                 label=self.label,
                 glassmorphic=self.glassmorphic,
+                instanceId=self.instance_id,
+                scrollableKey=self._scrollable_key,
+                fixedKey=self._fixed_key,
             ),
-            key=instance_key,
+            key=self._mount_key,
         )
-        scrollable = st.container(key="panel-scrollable", border=False)
-
+        scrollable = st.container(key=self._scrollable_key, border=False)
         with scrollable.container() as e:
             yield e
