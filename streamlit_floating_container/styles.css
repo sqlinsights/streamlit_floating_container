@@ -12,6 +12,7 @@
     max-height: 50vh;
     min-height: 50vh;
     min-width: 400px;
+    max-width: 400px;
     flex-direction: column;
     z-index: 800;
     transition: top 0.3s ease-out, height 0.3s ease-out, max-height 0.3s ease-out;

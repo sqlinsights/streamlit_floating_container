@@ -152,6 +152,8 @@ function createInstance(parentElement) {
     const onStretchClick = () => {
         isStretched = !isStretched;
         panelWindow.style.width = horizontalState[isStretched];
+        panelWindow.style.maxWidth = horizontalState[isStretched];
+        panelWindow.style.minWidth = horizontalState[isStretched];
 
     };
 

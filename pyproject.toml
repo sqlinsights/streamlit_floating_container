@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "streamlit-floating-container"
-version = "0.2.5"
+version = "0.2.7"
 description = "A Streamlit custom component that creates a floating, draggable chat panel with glassmorphic design and automatic chat input management."
 readme = "README.md"
 requires-python = ">=3.11"
